@@ -1,0 +1,43 @@
+/* Hide the entire top chrome container */
+#navigator-toolbox {
+    visibility: collapse !important;
+}
+
+/* Explicitly collapse common toolbars */
+#TabsToolbar,
+#nav-bar,
+#PersonalToolbar,
+#toolbar-menubar {
+    visibility: collapse !important;
+}
+
+/* Remove leftover height/spacing */
+#navigator-toolbox,
+#TabsToolbar,
+#nav-bar,
+#PersonalToolbar,
+#toolbar-menubar {
+    min-height: 0 !important;
+    max-height: 0 !important;
+    height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+}
+
+/* Hide sidebar header */
+#sidebar-header {
+    visibility: collapse !important;
+    height: 0 !important;
+    border: 0 !important;
+}
+
+/* Hide the status panel (URL preview on hover) */
+#statuspanel {
+    visibility: collapse !important;
+}
+
+/* Hide fullscreen warning */
+#fullscreen-warning {
+    visibility: collapse !important;
+}
