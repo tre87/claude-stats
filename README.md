@@ -19,7 +19,7 @@ claude-stats uses [Playwright](https://playwright.dev) to open a headless Firefo
 ## Installation
 
 ```bash
-git clone https://github.com/torbenrasmussen/claude-stats
+git clone https://github.com/tre87/claude-stats
 cd claude-stats
 ```
 
