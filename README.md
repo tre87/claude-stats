@@ -1,6 +1,6 @@
 # claude-stats
 
-A terminal dashboard that shows your [Claude.ai](https://claude.ai) usage in real time — session limits, weekly quotas, and pay-per-use spend + a count down by the to session resets.
+A terminal dashboard that shows your [Claude.ai](https://claude.ai) usage in real time — session limits, weekly quotas, and pay-per-use spend + a count down to session resets.
 
 ![claude-stats screenshot](screenshot.png)
 
