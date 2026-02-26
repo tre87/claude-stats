@@ -79,6 +79,21 @@ public static class ConsoleRenderer
         System.Console.Write("\x1b[?25h");
     }
 
+    /// <summary>
+    ///     Renders the title header with a status line — used during startup before data is available.
+    /// </summary>
+    public static void RenderStartup(string status)
+    {
+        System.Console.Write("\x1b[?25l\x1b[H\x1b[J");
+        AnsiConsole.WriteLine();
+        AnsiConsole.Write(new Rule("[bold dodgerblue1]Claude Usage Statistics[/]").RuleStyle("grey"));
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(status)}[/]");
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("  [dim]Press any key to cancel and clear saved session[/]");
+        System.Console.Write("\x1b[?25h");
+    }
+
     /// <summary>Restores cursor visibility — call on exit to avoid a hidden cursor in the terminal.</summary>
     public static void RestoreCursor()
     {

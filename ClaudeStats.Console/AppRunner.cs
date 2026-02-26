@@ -20,6 +20,23 @@ public sealed class AppRunner
         PlaywrightSetup.EnsureBrowsersInstalled();
 
         System.Console.Clear();
+        ConsoleRenderer.RenderStartup("Checking session...");
+
+        // Watch for a keypress during startup — cancels and clears the saved session
+        using var startupCts = new CancellationTokenSource();
+        var keyWatcher = Task.Run(async () =>
+        {
+            while (!startupCts.Token.IsCancellationRequested)
+            {
+                if (System.Console.KeyAvailable)
+                {
+                    System.Console.ReadKey(intercept: true);
+                    await startupCts.CancelAsync();
+                    return;
+                }
+                await Task.Delay(50, startupCts.Token).ContinueWith(_ => { });
+            }
+        });
 
         // One-time auth check before entering the loop
         var authenticated = await EnsureAuthenticatedAsync();
@@ -28,6 +45,15 @@ public sealed class AppRunner
             ConsoleRenderer.RenderError("Authentication failed or was cancelled.");
             return;
         }
+
+        if (startupCts.IsCancellationRequested)
+        {
+            ClaudeLoginHandler.ClearCache();
+            AnsiConsole.MarkupLine("[yellow]Session cleared.[/] Run again to log in.");
+            return;
+        }
+
+        ConsoleRenderer.RenderStartup("Connecting to browser...");
 
         // Reuse the same browser context and page across refreshes
         await using var browserService = new BrowserService();
@@ -41,6 +67,15 @@ public sealed class AppRunner
             ConsoleRenderer.RenderError($"Failed to launch browser: {Markup.Escape(ex.Message)}");
             return;
         }
+
+        if (startupCts.IsCancellationRequested)
+        {
+            ClaudeLoginHandler.ClearCache();
+            AnsiConsole.MarkupLine("[yellow]Session cleared.[/] Run again to log in.");
+            return;
+        }
+
+        await startupCts.CancelAsync(); // stop the watcher once we're into the main loop
 
         // Main refresh loop — runs until Ctrl+C
         UsageData? lastGoodData = null;
@@ -74,8 +109,12 @@ public sealed class AppRunner
 
             // Tick every second, re-rendering with live countdowns — no API call needed
             var nextFetchAt = DateTimeOffset.Now.AddSeconds(intervalSeconds);
+            var isInteractiveTerminal = !System.Console.IsOutputRedirected && AnsiConsole.Profile.Capabilities.Ansi;
             try
             {
+                // Render once immediately
+                ConsoleRenderer.Render(lastGoodData!, lastFetchedAt, intervalSeconds, nextFetchAt - DateTimeOffset.Now, lastWarning);
+
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     var remaining = nextFetchAt - DateTimeOffset.Now;
@@ -84,8 +123,13 @@ public sealed class AppRunner
                         break;
                     }
 
-                    ConsoleRenderer.Render(lastGoodData!, lastFetchedAt, intervalSeconds, remaining, lastWarning);
                     await Task.Delay(1000, cancellationToken);
+
+                    // Only re-render every second in a real terminal — avoid spamming non-interactive output
+                    if (isInteractiveTerminal)
+                    {
+                        ConsoleRenderer.Render(lastGoodData!, lastFetchedAt, intervalSeconds, nextFetchAt - DateTimeOffset.Now, lastWarning);
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -103,24 +147,18 @@ public sealed class AppRunner
     {
         if (ClaudeLoginHandler.HasCachedSession)
         {
-            var valid = false;
-            await AnsiConsole.Status()
-                .Spinner(Spinner.Known.Dots)
-                .SpinnerStyle(Style.Parse("grey"))
-                .StartAsync("Checking session...", async _ => { valid = await ClaudeLoginHandler.TrySilentSessionCheckAsync(); });
+            var valid = await ClaudeLoginHandler.TrySilentSessionCheckAsync();
 
             if (valid)
             {
                 return true;
             }
 
-            AnsiConsole.MarkupLine("[yellow]Session expired.[/] Opening Firefox to log in again...");
-            AnsiConsole.WriteLine();
+            ConsoleRenderer.RenderStartup("Session expired — opening Firefox to log in again...");
         }
         else
         {
-            AnsiConsole.MarkupLine("[bold]No saved session found.[/] Opening Firefox to log in...");
-            AnsiConsole.WriteLine();
+            ConsoleRenderer.RenderStartup("No saved session — opening Firefox to log in...");
         }
 
         var sessionKey = await ClaudeLoginHandler.InteractiveLoginAsync();
@@ -146,26 +184,21 @@ public sealed class AppRunner
         var interceptor = new NetworkInterceptor(discoverMode);
         interceptor.Register(page);
 
-        await AnsiConsole.Status()
-            .Spinner(Spinner.Known.Dots)
-            .SpinnerStyle(Style.Parse("dodgerblue1"))
-            .StartAsync("Fetching usage data from claude.ai...",
-                async _ =>
+        ConsoleRenderer.RenderStartup("Fetching usage data from claude.ai...");
+
+        try
+        {
+            await page.GotoAsync(UsageUrl,
+                new PageGotoOptions
                 {
-                    try
-                    {
-                        await page.GotoAsync(UsageUrl,
-                            new PageGotoOptions
-                            {
-                                WaitUntil = WaitUntilState.NetworkIdle,
-                                Timeout = 30_000
-                            });
-                    }
-                    catch (TimeoutException)
-                    {
-                        // NetworkIdle timeout is okay — we may have captured what we need
-                    }
+                    WaitUntil = WaitUntilState.NetworkIdle,
+                    Timeout = 30_000
                 });
+        }
+        catch (TimeoutException)
+        {
+            // NetworkIdle timeout is okay — we may have captured what we need
+        }
 
         // Detect session expiry mid-run
         if (page.Url.Contains("/login") || page.Url.Contains("/sign-in"))
