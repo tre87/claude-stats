@@ -56,7 +56,39 @@ public static class UsageParser
             data.PrepaidCredits = ParsePrepaidCredits(intercepted.PrepaidCreditsJson);
         }
 
+        data.Plan = DerivePlan(data);
+
         return data;
+    }
+
+    private static PlanTier DerivePlan(UsageData data)
+    {
+        // Max: has model-specific sub-limits (Opus or Sonnet buckets) — check before Team
+        if (data.SevenDayOpus is not null || data.SevenDaySonnet is not null)
+        {
+            return PlanTier.Max;
+        }
+
+        // Team: seat_tier is set (non-null) — this only appears on actual Team/Business accounts.
+        // Pro users with pay-per-use extra credits have is_enabled=true but seat_tier=null.
+        if (data.OverageSpendLimit?.SeatTier is not null)
+        {
+            return PlanTier.Team;
+        }
+
+        // Free: only has the 5-hour window, no 7-day
+        if (data.SevenDay is null && data.FiveHour is not null)
+        {
+            return PlanTier.Free;
+        }
+
+        // Pro: has 7-day window
+        if (data.SevenDay is not null)
+        {
+            return PlanTier.Pro;
+        }
+
+        return PlanTier.Unknown;
     }
 
     private static UsageData? ParseUsageJson(string json)
@@ -180,12 +212,19 @@ public static class UsageParser
                 currency = currEl.GetString();
             }
 
+            string? seatTier = null;
+            if (root.TryGetProperty("seat_tier", out var stEl) && stEl.ValueKind == JsonValueKind.String)
+            {
+                seatTier = stEl.GetString();
+            }
+
             return new OverageSpendLimit
             {
                 IsEnabled = isEnabled,
                 MonthlyCreditLimit = monthlyLimit,
                 CurrentSpend = currentSpend,
-                Currency = currency
+                Currency = currency,
+                SeatTier = seatTier
             };
         }
         catch (JsonException)

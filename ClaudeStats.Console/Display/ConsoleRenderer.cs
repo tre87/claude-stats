@@ -1,3 +1,4 @@
+using System.Reflection;
 using ClaudeStats.Console.Models;
 using Spectre.Console;
 
@@ -5,25 +6,46 @@ namespace ClaudeStats.Console.Display;
 
 public static class ConsoleRenderer
 {
-    public static void Render(UsageData data, DateTimeOffset fetchedAt = default, int intervalSeconds = 60, TimeSpan nextRefreshIn = default, string? warning = null)
+    private static readonly string AppVersion =
+        Assembly.GetExecutingAssembly().GetName().Version is { } v
+            ? $"v{v.Major}.{v.Minor}.{v.Build}"
+            : "v?";
+
+    private static string PlanLabel(PlanTier plan) => plan switch
+    {
+        PlanTier.Free    => "Free",
+        PlanTier.Pro     => "Pro",
+        PlanTier.Max     => "Max",
+        PlanTier.Team    => "Team",
+        _                => ""
+    };
+
+    private static string TitleMarkup(string? planLabel = null)
+    {
+        var plan = planLabel is not null ? $" [dim grey]|[/] [dodgerblue1]Plan: {Markup.Escape(planLabel)}[/]" : "";
+        return $"[bold dodgerblue1]Claude Usage Statistics[/] [dim grey]|[/] [dodgerblue1]{AppVersion}[/]{plan}";
+    }
+
+    public static void Render(UsageData data, DateTimeOffset fetchedAt = default, int intervalSeconds = 60, TimeSpan nextRefreshIn = default, string? warning = null, string? refreshingSpinner = null)
     {
         // Hide cursor, jump to top-left, erase to end of screen — flicker-free redraw
         System.Console.Write("\x1b[?25l\x1b[H\x1b[J");
         AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Rule("[bold dodgerblue1]Claude Usage Statistics[/]").RuleStyle("grey"));
+        var plan = PlanLabel(data.Plan);
+        AnsiConsole.Write(new Rule(TitleMarkup(plan.Length > 0 ? plan : null)).RuleStyle("grey"));
         AnsiConsole.WriteLine();
 
         var anyRendered = false;
 
         if (data.FiveHour is not null)
         {
-            RenderPeriod(data.FiveHour, Color.DodgerBlue1);
+            RenderPeriod(data.FiveHour, AppColors.FiveHour);
             anyRendered = true;
         }
 
         if (data.SevenDay is not null)
         {
-            RenderPeriod(data.SevenDay, Color.Green);
+            RenderPeriod(data.SevenDay, AppColors.SevenDay);
             anyRendered = true;
         }
 
@@ -59,14 +81,22 @@ public static class ConsoleRenderer
 
         // Footer
         var timeStr = fetchedAt == default ? "" : fetchedAt.ToLocalTime().ToString("HH:mm:ss");
-        var nextStr = nextRefreshIn == default || nextRefreshIn <= TimeSpan.Zero
-            ? "now"
-            : nextRefreshIn.TotalSeconds < 60
-                ? $"{(int)nextRefreshIn.TotalSeconds}s"
-                : $"{(int)nextRefreshIn.TotalMinutes}m {nextRefreshIn.Seconds}s";
 
         AnsiConsole.Write(new Rule().RuleStyle("grey"));
-        AnsiConsole.MarkupLine($"  [dim]Updated {timeStr}  ·  next refresh in [bold]{nextStr}[/]  ·  Ctrl+C to quit[/]");
+        if (refreshingSpinner is not null)
+        {
+            // Show blue spinner + "Refreshing..." instead of the countdown
+            AnsiConsole.MarkupLine($"  [dim]Updated {timeStr}  ·[/]  [dodgerblue1]{Markup.Escape(refreshingSpinner)} Refreshing...[/]  [dim]·  Ctrl+C to quit[/]");
+        }
+        else
+        {
+            var nextStr = nextRefreshIn == default || nextRefreshIn <= TimeSpan.Zero
+                ? "now"
+                : nextRefreshIn.TotalSeconds < 60
+                    ? $"{(int)nextRefreshIn.TotalSeconds}s"
+                    : $"{(int)nextRefreshIn.TotalMinutes}m {nextRefreshIn.Seconds}s";
+            AnsiConsole.MarkupLine($"  [dim]Updated {timeStr}  ·  next refresh in [bold]{nextStr}[/]  ·  Ctrl+C to quit[/]");
+        }
 
         if (warning is not null)
         {
@@ -74,30 +104,102 @@ public static class ConsoleRenderer
         }
 
         AnsiConsole.WriteLine();
+    }
 
-        // Restore cursor visibility after render
-        System.Console.Write("\x1b[?25h");
+    /// <summary>Draws the title rule + a single status line, no spinner.</summary>
+    public static void RenderHeader(string status)
+    {
+        System.Console.Write("\x1b[H\x1b[J");
+        AnsiConsole.WriteLine();
+        AnsiConsole.Write(new Rule(TitleMarkup()).RuleStyle("grey"));
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(status)}[/]");
+    }
+
+    private static readonly string[] SpinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+    /// <summary>
+    ///     Renders the title header and animates a spinner next to <paramref name="status"/>
+    ///     until <paramref name="work"/> completes.
+    /// </summary>
+    public static async Task RenderStartupAsync(string status, Task work)
+    {
+        System.Console.Write("\x1b[?25l"); // hide cursor
+        var frame = 0;
+
+        // Draw the static parts once
+        System.Console.Write("\x1b[H\x1b[J");
+        AnsiConsole.WriteLine();
+        AnsiConsole.Write(new Rule(TitleMarkup()).RuleStyle("grey"));
+        AnsiConsole.WriteLine();
+
+        // Spinner line is always line 4 (0-indexed: row 4) — we'll jump back to it each tick
+        while (!work.IsCompleted)
+        {
+            var spinner = SpinnerFrames[frame % SpinnerFrames.Length];
+            // Jump to line 4, clear line, rewrite — spinner in dodger blue, label in white
+            System.Console.Write($"\x1b[4;1H\x1b[2K  \x1b[38;5;33m{spinner}\x1b[0m {Markup.Escape(status)}");
+            frame++;
+            await Task.Delay(80).ContinueWith(_ => { });
+        }
+
+        // Final state: checkmark in blue, label in white
+        System.Console.Write($"\x1b[4;1H\x1b[2K  \x1b[38;5;33m✓\x1b[0m {Markup.Escape(status)}");
+        AnsiConsole.WriteLine();
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("  [dim]Press any key to cancel and clear saved session[/]");
+        System.Console.Write("\x1b[?25h"); // restore cursor
     }
 
     /// <summary>
-    ///     Renders the title header with a status line — used during startup before data is available.
+    ///     Re-renders the full display with a blue spinner in the footer while <paramref name="work"/> runs.
+    ///     No-ops in non-interactive terminals (e.g. Rider output window).
     /// </summary>
-    public static void RenderStartup(string status)
+    public static async Task RenderRefreshingAsync(
+        Task work,
+        bool isInteractiveTerminal,
+        UsageData data,
+        DateTimeOffset fetchedAt,
+        int intervalSeconds,
+        string? warning)
     {
-        System.Console.Write("\x1b[?25l\x1b[H\x1b[J");
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Rule("[bold dodgerblue1]Claude Usage Statistics[/]").RuleStyle("grey"));
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(status)}[/]");
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("  [dim]Press any key to cancel and clear saved session[/]");
-        System.Console.Write("\x1b[?25h");
+        if (!isInteractiveTerminal)
+        {
+            await work;
+            return;
+        }
+
+        System.Console.Write("\x1b[?25l"); // hide cursor
+        var frame = 0;
+
+        while (!work.IsCompleted)
+        {
+            var spinner = SpinnerFrames[frame % SpinnerFrames.Length];
+            Render(data, fetchedAt, intervalSeconds, default, warning, spinner);
+            frame++;
+            await Task.Delay(200).ContinueWith(_ => { });
+        }
+
+        System.Console.Write("\x1b[?25h"); // restore cursor
     }
 
     /// <summary>Restores cursor visibility — call on exit to avoid a hidden cursor in the terminal.</summary>
     public static void RestoreCursor()
     {
         System.Console.Write("\x1b[?25h");
+    }
+
+    private static int ChartWidth() => 80;
+
+    /// <summary>
+    /// Writes a line where left starts at column 0 and right ends exactly at <paramref name="totalWidth"/>.
+    /// <paramref name="leftPlain"/> and <paramref name="rightPlain"/> are the unstyled versions used for length calculation.
+    /// </summary>
+    private static void WriteAlignedLine(string leftPlain, string leftMarkup, string rightPlain, string rightMarkup, int totalWidth)
+    {
+        var gap = Math.Max(1, totalWidth - leftPlain.Length - rightPlain.Length);
+        AnsiConsole.Markup($"{leftMarkup}{new string(' ', gap)}{rightMarkup}");
+        AnsiConsole.WriteLine();
     }
 
     private static void RenderPeriod(UsagePeriod period, Color usedColor)
@@ -108,29 +210,36 @@ public static class ConsoleRenderer
 
         AnsiConsole.MarkupLine($"[bold]{Markup.Escape(period.Label)}[/]");
 
-        var chart = new BreakdownChart().Width(60).HideTagValues();
+        var chart = new BreakdownChart().Width(ChartWidth()).HideTags();
 
         if (used > 0)
-        {
-            chart.AddItem($"Used ({used:F0}%)", used, usedColor);
-        }
+            chart.AddItem($"Used ({used:F1}%)", used, usedColor);
 
         if (remaining > 0)
-        {
-            chart.AddItem($"Remaining ({remaining:F0}%)", remaining, Color.Grey23);
-        }
+            chart.AddItem($"Remaining ({remaining:F1}%)", remaining, AppColors.Remaining);
         else
-        {
             chart.AddItem("Full", 1, Color.Red); // sentinel so chart isn't empty
-        }
 
         AnsiConsole.Write(chart);
 
-        var percentColor = used >= 100 ? "red" : used >= 75 ? "yellow" : "green";
-        var limitTag = period.IsAtLimit ? "  [bold red]LIMIT REACHED[/]" : "";
-
-        AnsiConsole.MarkupLine($"  [{percentColor}]{used:F1}%[/] used{limitTag}  " + $"[dim]·  resets {resetText}[/]");
-
+        // Left: coloured square + white label. Right: dim square + white label, right-aligned under bar.
+        var usedColorName = usedColor.ToMarkup();
+        var limitTag   = period.IsAtLimit ? "  [bold red]LIMIT REACHED[/]" : "";
+        var leftText   = $"\u25a0 Used ({used:F1}%)";
+        var leftMarkup = $"[{usedColorName}]\u25a0[/] Used ({used:F1}%){limitTag}";
+        string rightText, rightMarkup;
+        if (remaining > 0)
+        {
+            rightText   = $"\u25a0 Remaining ({remaining:F1}%)";
+            rightMarkup = $"[{AppColors.RemainingMarkup}]\u25a0[/] Remaining ({remaining:F1}%)";
+        }
+        else
+        {
+            rightText   = "\u25a0 Full";
+            rightMarkup = "[red]\u25a0[/] [red]Full[/]";
+        }
+        WriteAlignedLine(leftText, leftMarkup, rightText, rightMarkup, ChartWidth());
+        AnsiConsole.MarkupLine($"  [dim]Resets in: {Markup.Escape(resetText)}[/]");
         AnsiConsole.WriteLine();
     }
 
@@ -144,18 +253,22 @@ public static class ConsoleRenderer
             var remaining = Math.Max(0.0, 100.0 - used);
 
             var chart = new BreakdownChart()
-                .Width(60)
-                .HideTagValues()
-                .AddItem($"Used ({used:F0}%)", used, Color.Orange1)
-                .AddItem($"Remaining ({remaining:F0}%)", remaining, Color.Grey23);
+                .Width(ChartWidth())
+                .HideTags()
+                .AddItem($"Used ({used:F1}%)", used, AppColors.ExtraUsage)
+                .AddItem($"Remaining ({remaining:F1}%)", remaining, AppColors.Remaining);
 
             AnsiConsole.Write(chart);
 
-            var resetText = FormatResetTime(extra.ResetsAt.HasValue
+            var resetText   = FormatResetTime(extra.ResetsAt.HasValue
                 ? extra.ResetsAt.Value - DateTimeOffset.UtcNow
                 : null);
-
-            AnsiConsole.MarkupLine($"  [orange1]{used:F1}%[/] used  [dim]·  resets {resetText}[/]");
+            var leftText    = $"\u25a0 Used ({used:F1}%)";
+            var leftMarkup  = $"[{AppColors.ExtraUsageMarkup}]\u25a0[/] Used ({used:F1}%)";
+            var rightText   = $"\u25a0 Remaining ({remaining:F1}%)";
+            var rightMarkup = $"[{AppColors.RemainingMarkup}]\u25a0[/] Remaining ({remaining:F1}%)";
+            WriteAlignedLine(leftText, leftMarkup, rightText, rightMarkup, ChartWidth());
+            AnsiConsole.MarkupLine($"  [dim]Resets in: {Markup.Escape(resetText)}[/]");
         }
         else
         {
@@ -179,34 +292,63 @@ public static class ConsoleRenderer
 
         if (limit.SpendPercent.HasValue && limit.MonthlyCreditLimit.HasValue)
         {
-            var used = limit.SpendPercent.Value;
-            var remaining = Math.Max(0.0, 100.0 - used);
+            var monthlyLimit = limit.MonthlyCreditLimit.Value;   // minor units, e.g. 5000 = €50.00
+            var spentUnits   = limit.CurrentSpend ?? 0;          // minor units spent
 
-            var chart = new BreakdownChart()
-                .Width(60)
-                .HideTagValues()
-                .AddItem($"Spent ({limit.FormatAmount(limit.CurrentSpend)})", used, Color.Orange1)
-                .AddItem($"Remaining ({limit.FormatAmount(limit.Remaining)})", remaining, Color.Grey23);
+            // All three segments are computed in minor units, then passed to BreakdownChart
+            // which scales them proportionally — so they must sum to monthlyLimit exactly.
+            var balanceUnits = prepaid?.Amount is > 0
+                ? Math.Min(prepaid.Amount.Value, Math.Max(0L, monthlyLimit - spentUnits))
+                : 0L;
+            var beyondUnits = Math.Max(0L, monthlyLimit - spentUnits - balanceUnits);
+
+            var chart = new BreakdownChart().Width(ChartWidth()).HideTags();
+
+            // Spent — bright yellow
+            if (spentUnits > 0)
+                chart.AddItem($"Spent ({limit.FormatAmount(spentUnits)})", spentUnits, AppColors.Spent);
+
+            // Balance reach — darker yellow
+            if (balanceUnits > 0)
+                chart.AddItem($"Balance ({prepaid!.FormatAmount()})", balanceUnits, AppColors.Balance);
+
+            // Beyond balance — dim grey
+            if (beyondUnits > 0)
+                chart.AddItem($"Limit", beyondUnits, AppColors.Remaining);
+
+            // Guard: chart needs at least one item
+            if (spentUnits == 0 && balanceUnits == 0)
+                chart.AddItem($"Limit", monthlyLimit, AppColors.Remaining);
 
             AnsiConsole.Write(chart);
 
-            var percentColor = used >= 90 ? "red" : used >= 60 ? "yellow" : "orange1";
-            AnsiConsole.MarkupLine($"  [{percentColor}]{limit.FormatAmount(limit.CurrentSpend)} spent[/]  " + $"[dim]of {limit.FormatAmount(limit.MonthlyCreditLimit)} monthly limit[/]");
+            // Left: yellow square + white "Spent (€X)". Right: dim square + white "Limit €50 (€X left)".
+            var leftText    = $"\u25a0 Spent ({limit.FormatAmount(spentUnits)})";
+            var leftMarkup  = $"[{AppColors.SpentMarkup}]\u25a0[/] Spent ({Markup.Escape(limit.FormatAmount(spentUnits))})";
+            var rightPlain  = beyondUnits > 0
+                ? $"\u25a0 Limit {limit.FormatAmount(monthlyLimit)} ({limit.FormatAmount(beyondUnits)} left)"
+                : $"\u25a0 Limit {limit.FormatAmount(monthlyLimit)}";
+            var rightMarkup = beyondUnits > 0
+                ? $"[{AppColors.RemainingMarkup}]\u25a0[/] Limit {Markup.Escape(limit.FormatAmount(monthlyLimit))} ({Markup.Escape(limit.FormatAmount(beyondUnits))} left)"
+                : $"[{AppColors.RemainingMarkup}]\u25a0[/] Limit {Markup.Escape(limit.FormatAmount(monthlyLimit))}";
+            WriteAlignedLine(leftText, leftMarkup, rightPlain, rightMarkup, ChartWidth());
         }
         else if (limit.CurrentSpend.HasValue)
         {
-            AnsiConsole.MarkupLine($"  [orange1]{limit.FormatAmount(limit.CurrentSpend)} spent[/]  [dim](no limit set)[/]");
+            AnsiConsole.MarkupLine($"  [{AppColors.SpentMarkup}]{limit.FormatAmount(limit.CurrentSpend)} spent[/]  [dim](no limit set)[/]");
         }
         else
         {
             AnsiConsole.MarkupLine("  [green]Enabled[/]  [dim]No spend recorded[/]");
         }
 
-        // Prepaid balance — the number that actually matters day-to-day
+        // Prepaid balance — flush left with bar, same width alignment
         if (prepaid?.Amount is not null)
         {
-            var balanceColor = prepaid.Amount < 500 ? "red" : prepaid.Amount < 2000 ? "yellow" : "green";
-            AnsiConsole.MarkupLine($"  [{balanceColor}]Balance: {prepaid.FormatAmount()}[/]  [dim]prepaid credits remaining[/]");
+            var balPlain  = $"\u25a0 Balance: {prepaid.FormatAmount()} remaining";
+            var balMarkup = $"[{AppColors.BalanceMarkup}]\u25a0[/] Balance: {Markup.Escape(prepaid.FormatAmount())} remaining";
+            AnsiConsole.Markup(balMarkup);
+            AnsiConsole.WriteLine();
         }
 
         // Credit grant info inline if relevant
@@ -237,32 +379,19 @@ public static class ConsoleRenderer
         }
 
         if (timeUntil.Value.TotalSeconds <= 0)
-        {
-            return "[green]now[/]";
-        }
-
-        if (timeUntil.Value.TotalMinutes < 1)
-        {
-            return "[yellow]in less than a minute[/]";
-        }
+            return "now";
 
         var parts = new List<string>();
         if (timeUntil.Value.Days > 0)
-        {
             parts.Add($"{timeUntil.Value.Days}d");
-        }
-
         if (timeUntil.Value.Hours > 0)
-        {
             parts.Add($"{timeUntil.Value.Hours}h");
-        }
-
         if (timeUntil.Value.Minutes > 0)
-        {
             parts.Add($"{timeUntil.Value.Minutes}m");
-        }
+        if (timeUntil.Value.Seconds > 0 && timeUntil.Value.Days == 0)
+            parts.Add($"{timeUntil.Value.Seconds}s");
 
-        return $"in [bold]{string.Join(" ", parts)}[/]";
+        return string.Join(" ", parts);
     }
 
     public static void RenderDiscoveryResults(IReadOnlyList<(string Url, string ContentType, string Preview)> responses)

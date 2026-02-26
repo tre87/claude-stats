@@ -20,7 +20,6 @@ public sealed class AppRunner
         PlaywrightSetup.EnsureBrowsersInstalled();
 
         System.Console.Clear();
-        ConsoleRenderer.RenderStartup("Checking session...");
 
         // Watch for a keypress during startup — cancels and clears the saved session
         using var startupCts = new CancellationTokenSource();
@@ -38,8 +37,12 @@ public sealed class AppRunner
             }
         });
 
-        // One-time auth check before entering the loop
-        var authenticated = await EnsureAuthenticatedAsync();
+        // Step 1: session check
+        bool authenticated;
+        var authTask = EnsureAuthenticatedAsync();
+        await ConsoleRenderer.RenderStartupAsync("Checking session...", authTask);
+        authenticated = await authTask;
+
         if (!authenticated)
         {
             ConsoleRenderer.RenderError("Authentication failed or was cancelled.");
@@ -53,14 +56,14 @@ public sealed class AppRunner
             return;
         }
 
-        ConsoleRenderer.RenderStartup("Connecting to browser...");
-
-        // Reuse the same browser context and page across refreshes
+        // Step 2: connect browser
         await using var browserService = new BrowserService();
         IPage page;
+        var browserTask = browserService.CreateAuthenticatedPageAsync();
+        await ConsoleRenderer.RenderStartupAsync("Connecting to browser...", browserTask);
         try
         {
-            page = await browserService.CreateAuthenticatedPageAsync();
+            page = await browserTask;
         }
         catch (Exception ex)
         {
@@ -80,10 +83,11 @@ public sealed class AppRunner
         // Main refresh loop — runs until Ctrl+C
         UsageData? lastGoodData = null;
         DateTimeOffset lastFetchedAt = default;
+        var isInteractiveTerminal = !System.Console.IsOutputRedirected && AnsiConsole.Profile.Capabilities.Ansi;
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            var (data, warning) = await FetchAndDisplayAsync(page, discoverMode, cancellationToken, intervalSeconds, lastGoodData);
+            var (data, warning) = await FetchAndDisplayAsync(page, discoverMode, cancellationToken, intervalSeconds, lastGoodData, isInteractiveTerminal, lastFetchedAt);
 
             if (discoverMode)
             {
@@ -109,7 +113,6 @@ public sealed class AppRunner
 
             // Tick every second, re-rendering with live countdowns — no API call needed
             var nextFetchAt = DateTimeOffset.Now.AddSeconds(intervalSeconds);
-            var isInteractiveTerminal = !System.Console.IsOutputRedirected && AnsiConsole.Profile.Capabilities.Ansi;
             try
             {
                 // Render once immediately
@@ -154,11 +157,11 @@ public sealed class AppRunner
                 return true;
             }
 
-            ConsoleRenderer.RenderStartup("Session expired — opening Firefox to log in again...");
+            ConsoleRenderer.RenderHeader("Session expired — opening Firefox to log in again...");
         }
         else
         {
-            ConsoleRenderer.RenderStartup("No saved session — opening Firefox to log in...");
+            ConsoleRenderer.RenderHeader("No saved session — opening Firefox to log in...");
         }
 
         var sessionKey = await ClaudeLoginHandler.InteractiveLoginAsync();
@@ -179,25 +182,27 @@ public sealed class AppRunner
         bool discoverMode,
         CancellationToken cancellationToken,
         int intervalSeconds,
-        UsageData? previousData)
+        UsageData? previousData,
+        bool isInteractiveTerminal = true,
+        DateTimeOffset previousFetchedAt = default,
+        string? previousWarning = null)
     {
         var interceptor = new NetworkInterceptor(discoverMode);
         interceptor.Register(page);
 
-        ConsoleRenderer.RenderStartup("Fetching usage data from claude.ai...");
+        var gotoTask = page.GotoAsync(UsageUrl,
+            new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle, Timeout = 30_000 })
+            .ContinueWith(_ => { }); // swallow TimeoutException — NetworkIdle timeout is okay
 
-        try
+        if (previousData is not null)
         {
-            await page.GotoAsync(UsageUrl,
-                new PageGotoOptions
-                {
-                    WaitUntil = WaitUntilState.NetworkIdle,
-                    Timeout = 30_000
-                });
+            // Keep existing data visible — show spinner in footer while refreshing
+            await ConsoleRenderer.RenderRefreshingAsync(gotoTask, isInteractiveTerminal, previousData, previousFetchedAt, intervalSeconds, previousWarning);
         }
-        catch (TimeoutException)
+        else
         {
-            // NetworkIdle timeout is okay — we may have captured what we need
+            // First fetch — nothing to show yet, use the startup spinner
+            await ConsoleRenderer.RenderStartupAsync("Fetching usage data from claude.ai...", gotoTask);
         }
 
         // Detect session expiry mid-run

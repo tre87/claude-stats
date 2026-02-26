@@ -52,10 +52,15 @@ public static class ClaudeLoginHandler
         }
 
         using var playwright = await Playwright.CreateAsync();
-        Directory.CreateDirectory(FirefoxProfileDir);
 
+        // Use a unique temp profile so headless Firefox doesn't conflict with a running Firefox instance
+        var tempProfile = Path.Combine(Path.GetTempPath(), $"claude-stats-check-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempProfile);
+
+        try
+        {
         await using var context = await playwright.Firefox.LaunchPersistentContextAsync(
-            FirefoxProfileDir,
+            tempProfile,
             new BrowserTypeLaunchPersistentContextOptions
             {
                 Headless = true,
@@ -68,25 +73,30 @@ public static class ClaudeLoginHandler
                 }
             });
 
-        await RestoreCookiesAsync(context);
+            await RestoreCookiesAsync(context);
 
-        var page = context.Pages.Count > 0 ? context.Pages[0] : await context.NewPageAsync();
+            var page = context.Pages.Count > 0 ? context.Pages[0] : await context.NewPageAsync();
 
-        try
-        {
-            await page.GotoAsync(UsageUrl,
-                new PageGotoOptions
-                {
-                    WaitUntil = WaitUntilState.Commit,
-                    Timeout = 15_000
-                });
+            try
+            {
+                await page.GotoAsync(UsageUrl,
+                    new PageGotoOptions
+                    {
+                        WaitUntil = WaitUntilState.Commit,
+                        Timeout = 15_000
+                    });
+            }
+            catch
+            {
+                return false;
+            }
+
+            return !page.Url.Contains("/login") && !page.Url.Contains("/sign-in");
         }
-        catch
+        finally
         {
-            return false;
+            try { Directory.Delete(tempProfile, recursive: true); } catch { /* best effort */ }
         }
-
-        return !page.Url.Contains("/login") && !page.Url.Contains("/sign-in");
     }
 
     /// <summary>
@@ -188,10 +198,12 @@ public static class ClaudeLoginHandler
     /// </summary>
     public static async Task<IBrowserContext> CreateAuthenticatedContextAsync(IPlaywright playwright)
     {
-        Directory.CreateDirectory(FirefoxProfileDir);
+        // Use a unique temp profile — avoids "already open" conflict with a running Firefox instance
+        var tempProfile = Path.Combine(Path.GetTempPath(), $"claude-stats-fetch-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempProfile);
 
         var context = await playwright.Firefox.LaunchPersistentContextAsync(
-            FirefoxProfileDir,
+            tempProfile,
             new BrowserTypeLaunchPersistentContextOptions
             {
                 Headless = true,
@@ -205,6 +217,13 @@ public static class ClaudeLoginHandler
             });
 
         await RestoreCookiesAsync(context);
+
+        // Clean up temp profile when the context is closed
+        context.Close += (_, _) =>
+        {
+            try { Directory.Delete(tempProfile, recursive: true); } catch { /* best effort */ }
+        };
+
         return context;
     }
 

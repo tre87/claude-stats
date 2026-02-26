@@ -1,10 +1,20 @@
 namespace ClaudeStats.Console.Models;
 
+public enum PlanTier
+{
+    Unknown,
+    Free,
+    Pro,
+    Max,
+    Team
+}
+
 /// <summary>
 ///     Full usage picture assembled from three claude.ai API endpoints.
 /// </summary>
 public sealed class UsageData
 {
+    public PlanTier Plan { get; set; } = PlanTier.Unknown;
     /// <summary>5-hour rolling session window. From /usage.</summary>
     public UsagePeriod? FiveHour { get; set; }
 
@@ -69,6 +79,9 @@ public sealed class OverageSpendLimit
 {
     public bool IsEnabled { get; set; }
     public string? Currency { get; set; }
+
+    /// <summary>Non-null on Team plans (e.g. "pro", "team"). Null on Pro+pay-per-use.</summary>
+    public string? SeatTier { get; set; }
 
     /// <summary>Monthly credit limit in minor units (e.g. 2000 = €20.00).</summary>
     public long? MonthlyCreditLimit { get; set; }
