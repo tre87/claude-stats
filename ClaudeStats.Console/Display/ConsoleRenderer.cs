@@ -5,10 +5,10 @@ namespace ClaudeStats.Console.Display;
 
 public static class ConsoleRenderer
 {
-    public static void Render(UsageData data, DateTimeOffset fetchedAt = default, int intervalSeconds = 60, TimeSpan nextRefreshIn = default)
+    public static void Render(UsageData data, DateTimeOffset fetchedAt = default, int intervalSeconds = 60, TimeSpan nextRefreshIn = default, string? warning = null)
     {
-        // Hide cursor and jump to top-left — avoids the full-clear blink on every tick
-        System.Console.Write("\x1b[?25l\x1b[H");
+        // Hide cursor, jump to top-left, erase to end of screen — flicker-free redraw
+        System.Console.Write("\x1b[?25l\x1b[H\x1b[J");
         AnsiConsole.WriteLine();
         AnsiConsole.Write(new Rule("[bold dodgerblue1]Claude Usage Statistics[/]").RuleStyle("grey"));
         AnsiConsole.WriteLine();
@@ -66,6 +66,8 @@ public static class ConsoleRenderer
                 : $"{(int)nextRefreshIn.TotalMinutes}m {nextRefreshIn.Seconds}s";
         AnsiConsole.Write(new Rule().RuleStyle("grey"));
         AnsiConsole.MarkupLine($"  [dim]Updated {timeStr}  ·  next refresh in [bold]{nextStr}[/]  ·  Ctrl+C to quit[/]");
+        if (warning is not null)
+            AnsiConsole.MarkupLine($"  [yellow]⚠ {Markup.Escape(warning)}[/]");
         AnsiConsole.WriteLine();
 
         // Restore cursor visibility after render
@@ -240,7 +242,7 @@ public static class ConsoleRenderer
     public static void RenderError(string message)
     {
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine($"[red]Error:[/] {Markup.Escape(message)}");
+        AnsiConsole.MarkupLine($"[red]Error:[/] {message}");
         AnsiConsole.WriteLine();
     }
 

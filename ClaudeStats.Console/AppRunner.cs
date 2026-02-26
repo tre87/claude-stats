@@ -38,17 +38,35 @@ public sealed class AppRunner
         }
         catch (Exception ex)
         {
-            ConsoleRenderer.RenderError($"Failed to launch browser: {ex.Message}");
+            ConsoleRenderer.RenderError($"Failed to launch browser: {Markup.Escape(ex.Message)}");
             return;
         }
 
         // Main refresh loop — runs until Ctrl+C
+        UsageData? lastGoodData = null;
+        DateTimeOffset lastFetchedAt = default;
+        string? lastWarning = null;
+
         while (!cancellationToken.IsCancellationRequested)
         {
-            var data = await FetchAndDisplayAsync(page, discoverMode, cancellationToken, intervalSeconds);
+            var (data, warning) = await FetchAndDisplayAsync(page, discoverMode, cancellationToken, intervalSeconds, lastGoodData);
 
-            if (discoverMode || data is null)
-                break;  // discover mode and failed fetches are one-shot
+            if (discoverMode)
+                break;
+
+            if (data is not null)
+            {
+                lastGoodData  = data;
+                lastFetchedAt = DateTimeOffset.Now;
+                lastWarning   = null;
+            }
+            else
+            {
+                // Fetch failed — keep showing last good data with a warning
+                lastWarning = warning ?? "Update failed — retrying next interval";
+                if (lastGoodData is null)
+                    break;  // No data at all yet, nothing to show
+            }
 
             // Tick every second, re-rendering with live countdowns — no API call needed
             var nextFetchAt = DateTimeOffset.Now.AddSeconds(intervalSeconds);
@@ -60,7 +78,7 @@ public sealed class AppRunner
                     if (remaining <= TimeSpan.Zero)
                         break;
 
-                    ConsoleRenderer.Render(data, DateTimeOffset.Now, intervalSeconds, remaining);
+                    ConsoleRenderer.Render(lastGoodData!, lastFetchedAt, intervalSeconds, remaining, lastWarning);
                     await Task.Delay(1000, cancellationToken);
                 }
             }
@@ -113,11 +131,12 @@ public sealed class AppRunner
         return true;
     }
 
-    private static async Task<UsageData?> FetchAndDisplayAsync(
+    private static async Task<(UsageData? Data, string? Warning)> FetchAndDisplayAsync(
         IPage page,
         bool discoverMode,
         CancellationToken cancellationToken,
-        int intervalSeconds = 60)
+        int intervalSeconds,
+        UsageData? previousData)
     {
         var interceptor = new NetworkInterceptor(discoverMode);
         interceptor.Register(page);
@@ -149,9 +168,9 @@ public sealed class AppRunner
 
             var authenticated = await EnsureAuthenticatedAsync();
             if (!authenticated)
-                return null;
+                return (null, "Re-authentication failed");
 
-            return await FetchAndDisplayAsync(page, discoverMode, cancellationToken, intervalSeconds);
+            return await FetchAndDisplayAsync(page, discoverMode, cancellationToken, intervalSeconds, previousData);
         }
 
         if (discoverMode)
@@ -160,7 +179,7 @@ public sealed class AppRunner
             ConsoleRenderer.RenderDiscoveryResults(interceptor.DiscoveredResponses);
             AnsiConsole.MarkupLine("[dim]Tip: Look for an endpoint containing usage/limits data and update[/]");
             AnsiConsole.MarkupLine("[dim]     NetworkInterceptor.IsUsageResponse() with the exact URL pattern.[/]");
-            return null;
+            return (null, null);
         }
 
         InterceptedData intercepted;
@@ -170,25 +189,14 @@ public sealed class AppRunner
         }
         catch (TimeoutException)
         {
-            ConsoleRenderer.RenderError(
-                "Timed out waiting for the usage API response.\n" +
-                "  Try [bold]--discover[/] to inspect what API responses are being received.\n" +
-                "  Try [bold]--login[/] to re-authenticate if your session may have expired.");
-            return null;
+            return (null, "Update timed out — will retry next interval");
         }
 
         var data = UsageParser.Parse(intercepted);
 
         if (data is null)
-        {
-            ConsoleRenderer.RenderError(
-                "Could not parse the usage API response.\n" +
-                "  Run with [bold]--discover[/] to see the raw response and report this as a bug.");
-            return null;
-        }
+            return (null, "Could not parse API response — will retry next interval");
 
-        // Initial render — nextRefreshIn is the full interval
-        ConsoleRenderer.Render(data, DateTimeOffset.Now, intervalSeconds, TimeSpan.FromSeconds(intervalSeconds));
-        return data;
+        return (data, null);
     }
 }
