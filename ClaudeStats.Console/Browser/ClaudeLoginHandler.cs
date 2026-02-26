@@ -6,10 +6,10 @@ using Cookie = Microsoft.Playwright.Cookie;
 namespace ClaudeStats.Console.Browser;
 
 /// <summary>
-/// Handles authentication with claude.ai using a persistent Firefox browser context.
-/// On first run (or when the session expires), a headed Firefox window is opened so
-/// the user can log in interactively. The session cookies are then saved to disk and
-/// reused on subsequent runs without any manual interaction.
+///     Handles authentication with claude.ai using a persistent Firefox browser context.
+///     On first run (or when the session expires), a headed Firefox window is opened so
+///     the user can log in interactively. The session cookies are then saved to disk and
+///     reused on subsequent runs without any manual interaction.
 /// </summary>
 public static class ClaudeLoginHandler
 {
@@ -18,9 +18,7 @@ public static class ClaudeLoginHandler
     private const string LoginUrl = "https://claude.ai/login";
     private const string UsageUrl = "https://claude.ai/settings/usage";
 
-    private static readonly string DataDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "claude-stats");
+    private static readonly string DataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "claude-stats");
 
     private static readonly string FirefoxProfileDir = Path.Combine(DataDir, "browser-firefox");
     private static readonly string CookieFile = Path.Combine(DataDir, "cookies.json");
@@ -32,20 +30,26 @@ public static class ClaudeLoginHandler
     public static void ClearCache()
     {
         if (File.Exists(CookieFile))
+        {
             File.Delete(CookieFile);
+        }
 
         if (Directory.Exists(FirefoxProfileDir))
+        {
             Directory.Delete(FirefoxProfileDir, true);
+        }
     }
 
     /// <summary>
-    /// Silently verifies the cached session by navigating to the usage page
-    /// with a headless Firefox. Returns true if the session is still valid.
+    ///     Silently verifies the cached session by navigating to the usage page
+    ///     with a headless Firefox. Returns true if the session is still valid.
     /// </summary>
     public static async Task<bool> TrySilentSessionCheckAsync()
     {
         if (!HasCachedSession)
+        {
             return false;
+        }
 
         using var playwright = await Playwright.CreateAsync();
         Directory.CreateDirectory(FirefoxProfileDir);
@@ -60,7 +64,7 @@ public static class ClaudeLoginHandler
                 FirefoxUserPrefs = new Dictionary<string, object>
                 {
                     ["browser.sessionstore.resume_from_crash"] = false,
-                    ["browser.startup.page"] = 0,
+                    ["browser.startup.page"] = 0
                 }
             });
 
@@ -70,11 +74,12 @@ public static class ClaudeLoginHandler
 
         try
         {
-            await page.GotoAsync(UsageUrl, new PageGotoOptions
-            {
-                WaitUntil = WaitUntilState.Commit,
-                Timeout = 15_000
-            });
+            await page.GotoAsync(UsageUrl,
+                new PageGotoOptions
+                {
+                    WaitUntil = WaitUntilState.Commit,
+                    Timeout = 15_000
+                });
         }
         catch
         {
@@ -85,8 +90,8 @@ public static class ClaudeLoginHandler
     }
 
     /// <summary>
-    /// Opens a visible Firefox window (no address bar) and navigates to claude.ai/login.
-    /// Waits indefinitely for the user to complete login, then saves cookies and closes.
+    ///     Opens a visible Firefox window (no address bar) and navigates to claude.ai/login.
+    ///     Waits indefinitely for the user to complete login, then saves cookies and closes.
     /// </summary>
     public static async Task<string?> InteractiveLoginAsync()
     {
@@ -115,7 +120,7 @@ public static class ClaudeLoginHandler
                     ["browser.chrome.toolbar_tips"] = false,
                     ["browser.urlbar.suggest.searches"] = false,
                     ["browser.sessionstore.resume_from_crash"] = false,
-                    ["browser.startup.page"] = 0,
+                    ["browser.startup.page"] = 0
                 }
             });
 
@@ -126,7 +131,14 @@ public static class ClaudeLoginHandler
 
         // Center the Firefox window on screen
         var (x, y) = ScreenHelper.GetCenteredWindowPosition(WindowWidth, WindowHeight);
-        try { await page.EvaluateAsync($"window.moveTo({x}, {y})"); } catch { /* best effort */ }
+        try
+        {
+            await page.EvaluateAsync($"window.moveTo({x}, {y})");
+        }
+        catch
+        {
+            /* best effort */
+        }
 
         // If already logged in (restored cookies were valid), skip waiting
         if (!page.Url.Contains("/login") && !page.Url.Contains("/sign-in"))
@@ -155,8 +167,14 @@ public static class ClaudeLoginHandler
         }
 
         // Let auth cookies settle before we read them
-        try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new PageWaitForLoadStateOptions { Timeout = 10_000 }); }
-        catch { /* best effort */ }
+        try
+        {
+            await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new PageWaitForLoadStateOptions { Timeout = 10_000 });
+        }
+        catch
+        {
+            /* best effort */
+        }
 
         var sessionKey = await ExtractSessionKeyAsync(context);
         await SaveCookiesAsync(context);
@@ -165,8 +183,8 @@ public static class ClaudeLoginHandler
     }
 
     /// <summary>
-    /// Creates a headless Firefox context with restored cookies for fetching usage data.
-    /// The caller is responsible for disposing the returned context.
+    ///     Creates a headless Firefox context with restored cookies for fetching usage data.
+    ///     The caller is responsible for disposing the returned context.
     /// </summary>
     public static async Task<IBrowserContext> CreateAuthenticatedContextAsync(IPlaywright playwright)
     {
@@ -182,7 +200,7 @@ public static class ClaudeLoginHandler
                 FirefoxUserPrefs = new Dictionary<string, object>
                 {
                     ["browser.sessionstore.resume_from_crash"] = false,
-                    ["browser.startup.page"] = 0,
+                    ["browser.startup.page"] = 0
                 }
             });
 
@@ -207,14 +225,18 @@ public static class ClaudeLoginHandler
     private static async Task RestoreCookiesAsync(IBrowserContext context)
     {
         if (!File.Exists(CookieFile))
+        {
             return;
+        }
 
         try
         {
             var json = await File.ReadAllTextAsync(CookieFile);
             var cookies = JsonSerializer.Deserialize<List<Cookie>>(json);
             if (cookies is { Count: > 0 })
+            {
                 await context.AddCookiesAsync(cookies);
+            }
         }
         catch (JsonException)
         {
@@ -223,9 +245,9 @@ public static class ClaudeLoginHandler
     }
 
     /// <summary>
-    /// Pre-seeds the Firefox profile with userChrome.css and user.js so that
-    /// preferences (especially stylesheet loading) are active on first launch.
-    /// Matches the Bio.Auth pattern exactly.
+    ///     Pre-seeds the Firefox profile with userChrome.css and user.js so that
+    ///     preferences (especially stylesheet loading) are active on first launch.
+    ///     Matches the Bio.Auth pattern exactly.
     /// </summary>
     private static void PrepareFirefoxProfile(string profileDir)
     {
@@ -233,7 +255,7 @@ public static class ClaudeLoginHandler
         var chromeDir = Path.Combine(profileDir, "chrome");
         Directory.CreateDirectory(chromeDir);
         var cssSource = Path.Combine(AppContext.BaseDirectory, "userChrome.css");
-        File.Copy(cssSource, Path.Combine(chromeDir, "userChrome.css"), overwrite: true);
+        File.Copy(cssSource, Path.Combine(chromeDir, "userChrome.css"), true);
 
         // Write user.js — Firefox reads this on startup before prefs.js, ensuring our prefs win
         var userJs =

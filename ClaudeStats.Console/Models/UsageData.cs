@@ -1,7 +1,7 @@
 namespace ClaudeStats.Console.Models;
 
 /// <summary>
-/// Full usage picture assembled from three claude.ai API endpoints.
+///     Full usage picture assembled from three claude.ai API endpoints.
 /// </summary>
 public sealed class UsageData
 {
@@ -21,18 +21,18 @@ public sealed class UsageData
     public ExtraUsagePeriod? ExtraUsage { get; set; }
 
     /// <summary>
-    /// Pay-per-use overage spend limit. From /overage_spend_limit.
-    /// Shows how much of the monthly credit limit has been consumed.
+    ///     Pay-per-use overage spend limit. From /overage_spend_limit.
+    ///     Shows how much of the monthly credit limit has been consumed.
     /// </summary>
     public OverageSpendLimit? OverageSpendLimit { get; set; }
 
     /// <summary>
-    /// One-time overage credit grant. From /overage_credit_grant.
+    ///     One-time overage credit grant. From /overage_credit_grant.
     /// </summary>
     public OverageCreditGrant? OverageCreditGrant { get; set; }
 
     /// <summary>
-    /// Prepaid credit balance. From /prepaid/credits.
+    ///     Prepaid credit balance. From /prepaid/credits.
     /// </summary>
     public PrepaidCredits? PrepaidCredits { get; set; }
 
@@ -62,8 +62,8 @@ public sealed class ExtraUsagePeriod
 }
 
 /// <summary>
-/// From GET /api/organizations/{id}/overage_spend_limit.
-/// Amounts are in the currency's minor units (e.g. EUR cents).
+///     From GET /api/organizations/{id}/overage_spend_limit.
+///     Amounts are in the currency's minor units (e.g. EUR cents).
 /// </summary>
 public sealed class OverageSpendLimit
 {
@@ -89,13 +89,17 @@ public sealed class OverageSpendLimit
     /// <summary>Formats a minor-unit amount as a currency string, e.g. €8.66.</summary>
     public string FormatAmount(long? minorUnits)
     {
-        if (!minorUnits.HasValue) return "?";
+        if (!minorUnits.HasValue)
+        {
+            return "?";
+        }
+
         var symbol = Currency?.ToUpperInvariant() switch
         {
             "EUR" => "€",
             "USD" => "$",
             "GBP" => "£",
-            _     => Currency ?? ""
+            _ => Currency ?? ""
         };
         return $"{symbol}{minorUnits.Value / 100.0:F2}";
     }
@@ -106,17 +110,22 @@ public sealed class PrepaidCredits
 {
     /// <summary>Current prepaid balance in minor units (e.g. 473 = €4.73).</summary>
     public long? Amount { get; set; }
+
     public string? Currency { get; set; }
 
     public string FormatAmount()
     {
-        if (!Amount.HasValue) return "?";
+        if (!Amount.HasValue)
+        {
+            return "?";
+        }
+
         var symbol = Currency?.ToUpperInvariant() switch
         {
             "EUR" => "€",
             "USD" => "$",
             "GBP" => "£",
-            _     => Currency ?? ""
+            _ => Currency ?? ""
         };
         return $"{symbol}{Amount.Value / 100.0:F2}";
     }
@@ -131,17 +140,22 @@ public sealed class OverageCreditGrant
 
     /// <summary>Grant amount in minor units, if granted.</summary>
     public long? AmountMinorUnits { get; set; }
+
     public string? Currency { get; set; }
 
     public string FormatAmount()
     {
-        if (!AmountMinorUnits.HasValue) return "?";
+        if (!AmountMinorUnits.HasValue)
+        {
+            return "?";
+        }
+
         var symbol = Currency?.ToUpperInvariant() switch
         {
             "EUR" => "€",
             "USD" => "$",
             "GBP" => "£",
-            _     => Currency ?? ""
+            _ => Currency ?? ""
         };
         return $"{symbol}{AmountMinorUnits.Value / 100.0:F2}";
     }

@@ -71,7 +71,10 @@ public static class Program
             ConsoleRenderer.RestoreCursor();
             ConsoleRenderer.RenderError($"Unexpected error: {Markup.Escape(ex.Message)}");
             if (args.Contains("--verbose"))
+            {
                 AnsiConsole.WriteException(ex);
+            }
+
             return 1;
         }
         finally
@@ -84,7 +87,7 @@ public static class Program
 
     private static void OnCancelKeyPress(object? sender, ConsoleCancelEventArgs e)
     {
-        e.Cancel = true;  // prevent immediate process kill
+        e.Cancel = true; // prevent immediate process kill
         _cts?.Cancel();
     }
 }

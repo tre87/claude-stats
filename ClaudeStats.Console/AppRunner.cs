@@ -45,27 +45,31 @@ public sealed class AppRunner
         // Main refresh loop — runs until Ctrl+C
         UsageData? lastGoodData = null;
         DateTimeOffset lastFetchedAt = default;
-        string? lastWarning = null;
 
         while (!cancellationToken.IsCancellationRequested)
         {
             var (data, warning) = await FetchAndDisplayAsync(page, discoverMode, cancellationToken, intervalSeconds, lastGoodData);
 
             if (discoverMode)
+            {
                 break;
+            }
 
+            string? lastWarning;
             if (data is not null)
             {
-                lastGoodData  = data;
+                lastGoodData = data;
                 lastFetchedAt = DateTimeOffset.Now;
-                lastWarning   = null;
+                lastWarning = null;
             }
             else
             {
                 // Fetch failed — keep showing last good data with a warning
                 lastWarning = warning ?? "Update failed — retrying next interval";
                 if (lastGoodData is null)
-                    break;  // No data at all yet, nothing to show
+                {
+                    break; // No data at all yet, nothing to show
+                }
             }
 
             // Tick every second, re-rendering with live countdowns — no API call needed
@@ -76,7 +80,9 @@ public sealed class AppRunner
                 {
                     var remaining = nextFetchAt - DateTimeOffset.Now;
                     if (remaining <= TimeSpan.Zero)
+                    {
                         break;
+                    }
 
                     ConsoleRenderer.Render(lastGoodData!, lastFetchedAt, intervalSeconds, remaining, lastWarning);
                     await Task.Delay(1000, cancellationToken);
@@ -90,24 +96,23 @@ public sealed class AppRunner
     }
 
     /// <summary>
-    /// Checks for a valid cached session. If missing or expired, opens Firefox
-    /// for interactive login. Returns true when authenticated.
+    ///     Checks for a valid cached session. If missing or expired, opens Firefox
+    ///     for interactive login. Returns true when authenticated.
     /// </summary>
     private static async Task<bool> EnsureAuthenticatedAsync()
     {
         if (ClaudeLoginHandler.HasCachedSession)
         {
-            bool valid = false;
+            var valid = false;
             await AnsiConsole.Status()
                 .Spinner(Spinner.Known.Dots)
                 .SpinnerStyle(Style.Parse("grey"))
-                .StartAsync("Checking session...", async _ =>
-                {
-                    valid = await ClaudeLoginHandler.TrySilentSessionCheckAsync();
-                });
+                .StartAsync("Checking session...", async _ => { valid = await ClaudeLoginHandler.TrySilentSessionCheckAsync(); });
 
             if (valid)
+            {
                 return true;
+            }
 
             AnsiConsole.MarkupLine("[yellow]Session expired.[/] Opening Firefox to log in again...");
             AnsiConsole.WriteLine();
@@ -144,21 +149,23 @@ public sealed class AppRunner
         await AnsiConsole.Status()
             .Spinner(Spinner.Known.Dots)
             .SpinnerStyle(Style.Parse("dodgerblue1"))
-            .StartAsync("Fetching usage data from claude.ai...", async _ =>
-            {
-                try
+            .StartAsync("Fetching usage data from claude.ai...",
+                async _ =>
                 {
-                    await page.GotoAsync(UsageUrl, new PageGotoOptions
+                    try
                     {
-                        WaitUntil = WaitUntilState.NetworkIdle,
-                        Timeout = 30_000
-                    });
-                }
-                catch (TimeoutException)
-                {
-                    // NetworkIdle timeout is okay — we may have captured what we need
-                }
-            });
+                        await page.GotoAsync(UsageUrl,
+                            new PageGotoOptions
+                            {
+                                WaitUntil = WaitUntilState.NetworkIdle,
+                                Timeout = 30_000
+                            });
+                    }
+                    catch (TimeoutException)
+                    {
+                        // NetworkIdle timeout is okay — we may have captured what we need
+                    }
+                });
 
         // Detect session expiry mid-run
         if (page.Url.Contains("/login") || page.Url.Contains("/sign-in"))
@@ -168,7 +175,9 @@ public sealed class AppRunner
 
             var authenticated = await EnsureAuthenticatedAsync();
             if (!authenticated)
+            {
                 return (null, "Re-authentication failed");
+            }
 
             return await FetchAndDisplayAsync(page, discoverMode, cancellationToken, intervalSeconds, previousData);
         }
@@ -195,7 +204,9 @@ public sealed class AppRunner
         var data = UsageParser.Parse(intercepted);
 
         if (data is null)
+        {
             return (null, "Could not parse API response — will retry next interval");
+        }
 
         return (data, null);
     }

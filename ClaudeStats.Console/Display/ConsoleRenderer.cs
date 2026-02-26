@@ -64,10 +64,15 @@ public static class ConsoleRenderer
             : nextRefreshIn.TotalSeconds < 60
                 ? $"{(int)nextRefreshIn.TotalSeconds}s"
                 : $"{(int)nextRefreshIn.TotalMinutes}m {nextRefreshIn.Seconds}s";
+
         AnsiConsole.Write(new Rule().RuleStyle("grey"));
         AnsiConsole.MarkupLine($"  [dim]Updated {timeStr}  ·  next refresh in [bold]{nextStr}[/]  ·  Ctrl+C to quit[/]");
+
         if (warning is not null)
+        {
             AnsiConsole.MarkupLine($"  [yellow]⚠ {Markup.Escape(warning)}[/]");
+        }
+
         AnsiConsole.WriteLine();
 
         // Restore cursor visibility after render
@@ -75,7 +80,10 @@ public static class ConsoleRenderer
     }
 
     /// <summary>Restores cursor visibility — call on exit to avoid a hidden cursor in the terminal.</summary>
-    public static void RestoreCursor() => System.Console.Write("\x1b[?25h");
+    public static void RestoreCursor()
+    {
+        System.Console.Write("\x1b[?25h");
+    }
 
     private static void RenderPeriod(UsagePeriod period, Color usedColor)
     {
@@ -88,21 +96,25 @@ public static class ConsoleRenderer
         var chart = new BreakdownChart().Width(60).HideTagValues();
 
         if (used > 0)
+        {
             chart.AddItem($"Used ({used:F0}%)", used, usedColor);
+        }
 
         if (remaining > 0)
+        {
             chart.AddItem($"Remaining ({remaining:F0}%)", remaining, Color.Grey23);
+        }
         else
-            chart.AddItem("Full", 1, Color.Red);  // sentinel so chart isn't empty
+        {
+            chart.AddItem("Full", 1, Color.Red); // sentinel so chart isn't empty
+        }
 
         AnsiConsole.Write(chart);
 
         var percentColor = used >= 100 ? "red" : used >= 75 ? "yellow" : "green";
         var limitTag = period.IsAtLimit ? "  [bold red]LIMIT REACHED[/]" : "";
 
-        AnsiConsole.MarkupLine(
-            $"  [{percentColor}]{used:F1}%[/] used{limitTag}  " +
-            $"[dim]·  resets {resetText}[/]");
+        AnsiConsole.MarkupLine($"  [{percentColor}]{used:F1}%[/] used{limitTag}  " + $"[dim]·  resets {resetText}[/]");
 
         AnsiConsole.WriteLine();
     }
@@ -127,6 +139,7 @@ public static class ConsoleRenderer
             var resetText = FormatResetTime(extra.ResetsAt.HasValue
                 ? extra.ResetsAt.Value - DateTimeOffset.UtcNow
                 : null);
+
             AnsiConsole.MarkupLine($"  [orange1]{used:F1}%[/] used  [dim]·  resets {resetText}[/]");
         }
         else
@@ -163,9 +176,7 @@ public static class ConsoleRenderer
             AnsiConsole.Write(chart);
 
             var percentColor = used >= 90 ? "red" : used >= 60 ? "yellow" : "orange1";
-            AnsiConsole.MarkupLine(
-                $"  [{percentColor}]{limit.FormatAmount(limit.CurrentSpend)} spent[/]  " +
-                $"[dim]of {limit.FormatAmount(limit.MonthlyCreditLimit)} monthly limit[/]");
+            AnsiConsole.MarkupLine($"  [{percentColor}]{limit.FormatAmount(limit.CurrentSpend)} spent[/]  " + $"[dim]of {limit.FormatAmount(limit.MonthlyCreditLimit)} monthly limit[/]");
         }
         else if (limit.CurrentSpend.HasValue)
         {
@@ -187,11 +198,17 @@ public static class ConsoleRenderer
         if (grant is not null && (grant.Available || grant.Granted || grant.Eligible))
         {
             if (grant.Granted && grant.AmountMinorUnits.HasValue)
+            {
                 AnsiConsole.MarkupLine($"  [green]Credit grant:[/] {grant.FormatAmount()} granted");
+            }
             else if (grant.Available)
+            {
                 AnsiConsole.MarkupLine("  [yellow]Credit grant:[/] available to claim");
+            }
             else if (grant.Eligible)
+            {
                 AnsiConsole.MarkupLine("  [dim]Credit grant:[/] eligible");
+            }
         }
 
         AnsiConsole.WriteLine();
@@ -200,18 +217,35 @@ public static class ConsoleRenderer
     private static string FormatResetTime(TimeSpan? timeUntil)
     {
         if (timeUntil is null)
+        {
             return "[dim]at unknown time[/]";
+        }
 
         if (timeUntil.Value.TotalSeconds <= 0)
+        {
             return "[green]now[/]";
+        }
 
         if (timeUntil.Value.TotalMinutes < 1)
+        {
             return "[yellow]in less than a minute[/]";
+        }
 
         var parts = new List<string>();
-        if (timeUntil.Value.Days > 0) parts.Add($"{timeUntil.Value.Days}d");
-        if (timeUntil.Value.Hours > 0) parts.Add($"{timeUntil.Value.Hours}h");
-        if (timeUntil.Value.Minutes > 0) parts.Add($"{timeUntil.Value.Minutes}m");
+        if (timeUntil.Value.Days > 0)
+        {
+            parts.Add($"{timeUntil.Value.Days}d");
+        }
+
+        if (timeUntil.Value.Hours > 0)
+        {
+            parts.Add($"{timeUntil.Value.Hours}h");
+        }
+
+        if (timeUntil.Value.Minutes > 0)
+        {
+            parts.Add($"{timeUntil.Value.Minutes}m");
+        }
 
         return $"in [bold]{string.Join(" ", parts)}[/]";
     }
@@ -233,7 +267,7 @@ public static class ConsoleRenderer
         {
             AnsiConsole.MarkupLine($"[bold dodgerblue1]{Markup.Escape(url)}[/]");
             AnsiConsole.MarkupLine($"  [dim]Content-Type: {Markup.Escape(contentType)}[/]");
-            AnsiConsole.MarkupLine($"  [dim]Preview:[/]");
+            AnsiConsole.MarkupLine("  [dim]Preview:[/]");
             AnsiConsole.MarkupLine($"  [grey]{Markup.Escape(preview)}[/]");
             AnsiConsole.WriteLine();
         }

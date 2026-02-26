@@ -6,6 +6,8 @@ public static class PlaywrightSetup
     {
         var exitCode = Microsoft.Playwright.Program.Main(["install", "firefox"]);
         if (exitCode != 0)
+        {
             throw new InvalidOperationException("Failed to install Playwright Firefox. Run 'playwright install firefox' manually.");
+        }
     }
 }

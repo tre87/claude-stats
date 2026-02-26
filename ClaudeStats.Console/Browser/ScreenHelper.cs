@@ -30,15 +30,17 @@ public static class ScreenHelper
         {
             process.StartInfo.FileName = "osascript";
             process.StartInfo.Arguments = """
-                -l JavaScript -e "ObjC.import('AppKit'); var f = $.NSScreen.mainScreen.frame; f.size.width + ' ' + f.size.height;"
-                """;
+                                          -l JavaScript -e "ObjC.import('AppKit'); var f = $.NSScreen.mainScreen.frame; f.size.width + ' ' + f.size.height;"
+                                          """;
             process.Start();
             var output = process.StandardOutput.ReadToEnd().Trim();
             process.WaitForExit();
 
             var parts = output.Split(' ');
             if (parts.Length == 2)
+            {
                 return ((int)double.Parse(parts[0]), (int)double.Parse(parts[1]));
+            }
         }
         else if (OperatingSystem.IsWindows())
         {
@@ -53,13 +55,19 @@ public static class ScreenHelper
             {
                 var trimmed = line.Trim();
                 if (trimmed.StartsWith("CurrentHorizontalResolution="))
+                {
                     w = int.Parse(trimmed.Split('=')[1]);
+                }
                 else if (trimmed.StartsWith("CurrentVerticalResolution="))
+                {
                     h = int.Parse(trimmed.Split('=')[1]);
+                }
             }
 
             if (w > 0 && h > 0)
+            {
                 return (w, h);
+            }
         }
 
         return (1920, 1080);
