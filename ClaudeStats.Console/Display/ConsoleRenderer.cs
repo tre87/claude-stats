@@ -61,12 +61,6 @@ public static class ConsoleRenderer
             anyRendered = true;
         }
 
-        if (data.ExtraUsage is not null)
-        {
-            RenderExtraUsagePeriod(data.ExtraUsage);
-            anyRendered = true;
-        }
-
         if (data.OverageSpendLimit is not null)
         {
             RenderOverageSpendLimit(data.OverageSpendLimit, data.OverageCreditGrant, data.PrepaidCredits);
